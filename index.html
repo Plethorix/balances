@@ -4,8 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Monitor DeFi Dashboard</title>
+
+  <!-- Ethers.js local desde GitHub Pages -->
   <script src="https://plethorix.github.io/balances/libs/ethers.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <style>
     body {
       font-family: "Inter", sans-serif;
@@ -81,7 +84,8 @@
 
   <script>
     // ===== CONFIGURACIÓN =====
-    const provider = new ethers.JsonRpcProvider("https://public-arb-mainnet.fastnode.io");
+    // RPC WebSocket en Arbitrum
+    const provider = new ethers.WebSocketProvider("wss://arbitrum-one-rpc.publicnode.com");
 
     const REFRESH_INTERVAL_MINUTES = 0.5; // cada 30 segundos
     const PERIODS_PER_YEAR = 525600 / REFRESH_INTERVAL_MINUTES; // = 1,051,200 períodos/año
@@ -125,32 +129,24 @@
     // ===== FUNCIONES =====
     async function fetchBalances(ethAddress) {
       try {
-        const morphoVault = MORPHO_DEFAULT;
-
-        // Morpho
-        const morphoContract = new ethers.Contract(morphoVault, erc20Abi, provider);
+        const morphoContract = new ethers.Contract(MORPHO_DEFAULT, erc20Abi, provider);
         const morphoShares = await morphoContract.balanceOf(ethAddress);
         const morphoAssets = await morphoContract.convertToAssets(morphoShares);
         const deposited = parseFloat(ethers.formatUnits(morphoAssets, 6));
 
-        // Aave Deposits
         const aaveDepositsContract = new ethers.Contract(AAVE_USDC_DEPOSITS, erc20Abi, provider);
         const aaveDepositsRaw = await aaveDepositsContract.balanceOf(ethAddress);
         const aaveDeposits = parseFloat(ethers.formatUnits(aaveDepositsRaw, 6));
 
-        // Aave Debt
         const aaveDebtContract = new ethers.Contract(AAVE_DEBT, erc20Abi, provider);
         const aaveDebtRaw = await aaveDebtContract.balanceOf(ethAddress);
         const debt = parseFloat(ethers.formatUnits(aaveDebtRaw, 6));
 
-        // Net position
         const net = deposited + aaveDeposits - debt;
 
-        // Calcular delta y APY
+        // Cálculo de delta y APY
         let delta = 0;
-        if (history.length > 0) {
-          delta = net - history[history.length - 1].net;
-        }
+        if (history.length > 0) delta = net - history[history.length - 1].net;
 
         const apy = history.length > 0 && history[history.length - 1].net > 0
           ? ((1 + delta / history[history.length - 1].net) ** PERIODS_PER_YEAR - 1) * 100
