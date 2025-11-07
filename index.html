@@ -3,192 +3,224 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DeFi Dashboard v2</title>
+  <title>DeFi Monitor – Morpho & Aave</title>
 
-  <!-- Ethers.js local desde GitHub Pages -->
-  <script src="https://plethorix.github.io/balances/libs/ethers.umd.min.js"></script>
+  <!-- Librerías locales -->
+  <script src="libs/ethers.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <style>
     body {
+      background-color: #0f172a;
+      color: #f1f5f9;
       font-family: "Inter", sans-serif;
-      background-color: #0d1117;
-      color: #c9d1d9;
       margin: 0;
-      padding: 2rem;
+      padding: 20px;
     }
     h1 {
       text-align: center;
-      color: #58a6ff;
+      margin-bottom: 20px;
     }
-    .container {
-      max-width: 700px;
-      margin: 0 auto;
-      background: #161b22;
-      padding: 2rem;
-      border-radius: 1rem;
-      box-shadow: 0 0 20px rgba(0,0,0,0.4);
+    .card {
+      background-color: #1e293b;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
     }
-    input, button, select {
-      width: 100%;
-      padding: 0.75rem;
+    input, button {
+      padding: 10px;
       border: none;
-      border-radius: 0.5rem;
-      margin-bottom: 1rem;
-      font-size: 1rem;
+      border-radius: 8px;
+      font-size: 14px;
     }
     input {
-      background: #0d1117;
-      color: #c9d1d9;
-      border: 1px solid #30363d;
+      width: 300px;
+      background-color: #334155;
+      color: #f1f5f9;
     }
     button {
-      background: #238636;
+      background-color: #2563eb;
       color: white;
       cursor: pointer;
-      transition: background 0.3s;
+      margin-left: 10px;
     }
     button:hover {
-      background: #2ea043;
-    }
-    .stats {
-      margin-top: 1.5rem;
-      line-height: 1.7;
-    }
-    .stats span {
-      color: #79c0ff;
-      font-weight: bold;
+      background-color: #1d4ed8;
     }
     canvas {
-      margin-top: 2rem;
+      background: transparent;
     }
   </style>
 </head>
 <body>
-  <h1>📊 Monitor DeFi Dashboard</h1>
+  <h1>DeFi Dashboard – Morpho & Aave (Arbitrum)</h1>
 
-  <div class="container">
-    <input id="ethAddress" placeholder="Introduce tu dirección Ethereum..." />
-    <button onclick="updateBalances()">Actualizar Ahora</button>
+  <div class="card">
+    <p><strong>Dirección del usuario:</strong></p>
+    <input type="text" id="userAddress" placeholder="0x..." />
+    <button onclick="updateBalances()">Consultar</button>
+  </div>
 
-    <div class="stats">
-      <p><strong>Depósitos Morpho (USDC):</strong> <span id="deposits">0.000000</span></p>
-      <p><strong>Depósitos Aave USDC:</strong> <span id="aaveDeposits">0.000000</span></p>
-      <p><strong>Deuda Aave (USDC):</strong> <span id="debt">0.000000</span></p>
-      <p><strong>Posición Neta (USDC):</strong> <span id="net">0.000000</span></p>
-      <p><strong>APY Estimado:</strong> <span id="apy">0.00%</span></p>
-    </div>
+  <div class="card">
+    <p><strong>Depósitos Morpho:</strong> <span id="morphoBalance">0.000000</span> USDC</p>
+    <p><strong>Depósitos Aave:</strong> <span id="aaveBalance">0.000000</span> USDC</p>
+    <p><strong>Deuda Aave:</strong> <span id="debtBalance">0.000000</span> USDC</p>
+    <hr>
+    <p><strong>Posición neta:</strong> <span id="netBalance">0.000000</span> USDC</p>
+  </div>
 
-    <canvas id="chart" width="400" height="200"></canvas>
+  <div class="card">
+    <p><strong>APY Morpho:</strong> <span id="morphoApy">0.00%</span></p>
+    <p><strong>APY Aave Depósitos:</strong> <span id="aaveApy">0.00%</span></p>
+    <p><strong>APY Total:</strong> <span id="totalApy">0.00%</span></p>
+  </div>
+
+  <div class="card">
+    <canvas id="apyChart" height="120"></canvas>
   </div>
 
   <script>
-    // ===== CONFIGURACIÓN =====
-    // RPC WebSocket en Arbitrum
     const provider = new ethers.WebSocketProvider("wss://arbitrum-one-rpc.publicnode.com");
 
-    const REFRESH_INTERVAL_MINUTES = 0.5; // cada 30 segundos
-    const PERIODS_PER_YEAR = 525600 / REFRESH_INTERVAL_MINUTES; // = 1,051,200 períodos/año
+    const MORPHO_DEFAULT = "0x7e97fa6893871A2751B5fE961978DCCb2c201E65"; // Vault Morpho
+    const AAVE_USDC = "0x724dc807b04555b71ed48a6896b6f41593b8c637"; // aUSDC Aave
+    const AAVE_DEBT = "0xf611aeb5013fd2c0511c9cd55c7dc5c1140741a6"; // deuda Aave
 
-    const MORPHO_DEFAULT = "0x7e97fa6893871A2751B5fE961978DCCb2c201E65";
-    const AAVE_DEBT = "0xf611aeb5013fd2c0511c9cd55c7dc5c1140741a6";
-    const AAVE_USDC_DEPOSITS = "0x724dc807b04555b71ed48a6896b6f41593b8c637";
+    const REFRESH_INTERVAL_MINUTES = 0.5; // cada 30s
+    const PERIODS_PER_YEAR = 525600 / REFRESH_INTERVAL_MINUTES;
 
     const erc20Abi = [
-      "function balanceOf(address) view returns (uint256)",
+      "function balanceOf(address account) view returns (uint256)",
       "function convertToAssets(uint256 shares) view returns (uint256)"
     ];
 
     let history = [];
 
-    // ===== GRÁFICO =====
-    const ctx = document.getElementById("chart");
-    const chart = new Chart(ctx, {
+    // Configuración del gráfico
+    const ctx = document.getElementById("apyChart").getContext("2d");
+    const apyChart = new Chart(ctx, {
       type: "line",
       data: {
         labels: [],
-        datasets: [{
-          label: "Posición Neta (USDC)",
-          data: [],
-          borderWidth: 2,
-          fill: false,
-          tension: 0.3
-        }]
+        datasets: [
+          {
+            label: "APY Morpho",
+            borderColor: "#22c55e",
+            data: [],
+            tension: 0.25,
+            borderWidth: 2,
+            fill: false
+          },
+          {
+            label: "APY Aave",
+            borderColor: "#3b82f6",
+            data: [],
+            tension: 0.25,
+            borderWidth: 2,
+            fill: false
+          },
+          {
+            label: "APY Total",
+            borderColor: "#e5e7eb",
+            data: [],
+            tension: 0.25,
+            borderWidth: 2,
+            fill: false
+          }
+        ]
       },
       options: {
+        responsive: true,
         scales: {
-          x: { ticks: { color: "#8b949e" } },
-          y: { ticks: { color: "#8b949e" } }
+          y: {
+            beginAtZero: true,
+            title: { display: true, text: "APY (%)", color: "#f1f5f9" },
+            ticks: { color: "#f1f5f9" },
+            grid: { color: "#334155" }
+          },
+          x: {
+            title: { display: true, text: "Tiempo (intervalos de 30s)", color: "#f1f5f9" },
+            ticks: { color: "#f1f5f9" },
+            grid: { color: "#334155" }
+          }
         },
         plugins: {
-          legend: { labels: { color: "#c9d1d9" } }
+          legend: { labels: { color: "#f1f5f9" } }
         }
       }
     });
 
-    // ===== FUNCIONES =====
-    async function fetchBalances(ethAddress) {
+    async function fetchBalances() {
+      const userAddress = document.getElementById("userAddress").value.trim();
+      if (!userAddress) return;
+
       try {
-        const morphoContract = new ethers.Contract(MORPHO_DEFAULT, erc20Abi, provider);
-        const morphoShares = await morphoContract.balanceOf(ethAddress);
-        const morphoAssets = await morphoContract.convertToAssets(morphoShares);
-        const deposited = parseFloat(ethers.formatUnits(morphoAssets, 6));
+        const morpho = new ethers.Contract(MORPHO_DEFAULT, erc20Abi, provider);
+        const aave = new ethers.Contract(AAVE_USDC, erc20Abi, provider);
+        const debt = new ethers.Contract(AAVE_DEBT, erc20Abi, provider);
 
-        const aaveDepositsContract = new ethers.Contract(AAVE_USDC_DEPOSITS, erc20Abi, provider);
-        const aaveDepositsRaw = await aaveDepositsContract.balanceOf(ethAddress);
-        const aaveDeposits = parseFloat(ethers.formatUnits(aaveDepositsRaw, 6));
+        // 🔹 Morpho
+        const morphoShares = await morpho.balanceOf(userAddress);
+        const morphoAssets = await morpho.convertToAssets(morphoShares);
+        const morphoUSDC = Number(ethers.formatUnits(morphoAssets, 6));
 
-        const aaveDebtContract = new ethers.Contract(AAVE_DEBT, erc20Abi, provider);
-        const aaveDebtRaw = await aaveDebtContract.balanceOf(ethAddress);
-        const debt = parseFloat(ethers.formatUnits(aaveDebtRaw, 6));
+        // 🔹 Aave deposits
+        const aaveBal = await aave.balanceOf(userAddress);
+        const aaveUSDC = Number(ethers.formatUnits(aaveBal, 6));
 
-        const net = deposited + aaveDeposits - debt;
+        // 🔹 Deuda
+        const debtBal = await debt.balanceOf(userAddress);
+        const debtUSDC = Number(ethers.formatUnits(debtBal, 6));
 
-        // Cálculo de delta y APY
-        let delta = 0;
-        if (history.length > 0) delta = net - history[history.length - 1].net;
+        const net = morphoUSDC + aaveUSDC - debtUSDC;
 
-        const apy = history.length > 0 && history[history.length - 1].net > 0
-          ? ((1 + delta / history[history.length - 1].net) ** PERIODS_PER_YEAR - 1) * 100
+        // Cálculos de deltas y APY
+        let morphoDelta = 0, aaveDelta = 0, netDelta = 0;
+        if (history.length > 0) {
+          morphoDelta = morphoUSDC - history[history.length - 1].morpho;
+          aaveDelta   = aaveUSDC   - history[history.length - 1].aave;
+          netDelta    = net        - history[history.length - 1].net;
+        }
+
+        const morphoApy = history.length > 0
+          ? ((1 + morphoDelta / history[history.length - 1].morpho) ** PERIODS_PER_YEAR - 1) * 100
+          : 0;
+        const aaveApy = history.length > 0
+          ? ((1 + aaveDelta / history[history.length - 1].aave) ** PERIODS_PER_YEAR - 1) * 100
+          : 0;
+        const totalApy = history.length > 0
+          ? ((1 + netDelta / history[history.length - 1].net) ** PERIODS_PER_YEAR - 1) * 100
           : 0;
 
-        // Actualizar UI
-        document.getElementById("deposits").innerText = deposited.toFixed(6);
-        document.getElementById("aaveDeposits").innerText = aaveDeposits.toFixed(6);
-        document.getElementById("debt").innerText = debt.toFixed(6);
-        document.getElementById("net").innerText = net.toFixed(6);
-        document.getElementById("apy").innerText = apy.toFixed(2) + "%";
+        history.push({ morpho: morphoUSDC, aave: aaveUSDC, debt: debtUSDC, net, morphoApy, aaveApy, totalApy });
 
-        // Actualizar gráfico
-        history.push({ time: new Date().toLocaleTimeString(), net });
-        if (history.length > 30) history.shift();
+        // Mostrar valores
+        document.getElementById("morphoBalance").innerText = morphoUSDC.toFixed(6);
+        document.getElementById("aaveBalance").innerText = aaveUSDC.toFixed(6);
+        document.getElementById("debtBalance").innerText = debtUSDC.toFixed(6);
+        document.getElementById("netBalance").innerText = net.toFixed(6);
 
-        chart.data.labels = history.map(h => h.time);
-        chart.data.datasets[0].data = history.map(h => h.net);
-        chart.update();
+        document.getElementById("morphoApy").innerText = morphoApy.toFixed(2) + "%";
+        document.getElementById("aaveApy").innerText = aaveApy.toFixed(2) + "%";
+        document.getElementById("totalApy").innerText = totalApy.toFixed(2) + "%";
+
+        // 🔹 Actualizar gráfico
+        apyChart.data.labels.push(history.length.toString());
+        apyChart.data.datasets[0].data.push(morphoApy);
+        apyChart.data.datasets[1].data.push(aaveApy);
+        apyChart.data.datasets[2].data.push(totalApy);
+        apyChart.update();
 
       } catch (err) {
-        console.error("Error leyendo balances:", err);
+        console.error("Error al obtener balances:", err);
       }
     }
 
-    async function updateBalances() {
-      const ethAddress = document.getElementById("ethAddress").value.trim();
-      if (!ethers.isAddress(ethAddress)) {
-        alert("Por favor introduce una dirección Ethereum válida.");
-        return;
-      }
-      await fetchBalances(ethAddress);
+    function updateBalances() {
+      fetchBalances();
+      setInterval(fetchBalances, 30000); // cada 30s
     }
-
-    // ===== AUTO-REFRESCO =====
-    setInterval(() => {
-      const ethAddress = document.getElementById("ethAddress").value.trim();
-      if (ethers.isAddress(ethAddress)) {
-        fetchBalances(ethAddress);
-      }
-    }, 30000); // cada 30 segundos
-
   </script>
 </body>
 </html>
