@@ -1,147 +1,198 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Morpho + Aave Dashboard (Arbitrum)</title>
-<link rel="stylesheet" href="style.css">
-
-<!-- Ethers.js desde GitHub Pages -->
-<script src="https://plethorix.github.io/balances/libs/ethers.umd.min.js"></script>
-
-<!-- Chart.js -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Monitor DeFi Dashboard</title>
+  <script src="https://plethorix.github.io/balances/libs/ethers.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: "Inter", sans-serif;
+      background-color: #0d1117;
+      color: #c9d1d9;
+      margin: 0;
+      padding: 2rem;
+    }
+    h1 {
+      text-align: center;
+      color: #58a6ff;
+    }
+    .container {
+      max-width: 700px;
+      margin: 0 auto;
+      background: #161b22;
+      padding: 2rem;
+      border-radius: 1rem;
+      box-shadow: 0 0 20px rgba(0,0,0,0.4);
+    }
+    input, button, select {
+      width: 100%;
+      padding: 0.75rem;
+      border: none;
+      border-radius: 0.5rem;
+      margin-bottom: 1rem;
+      font-size: 1rem;
+    }
+    input {
+      background: #0d1117;
+      color: #c9d1d9;
+      border: 1px solid #30363d;
+    }
+    button {
+      background: #238636;
+      color: white;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    button:hover {
+      background: #2ea043;
+    }
+    .stats {
+      margin-top: 1.5rem;
+      line-height: 1.7;
+    }
+    .stats span {
+      color: #79c0ff;
+      font-weight: bold;
+    }
+    canvas {
+      margin-top: 2rem;
+    }
+  </style>
 </head>
 <body>
+  <h1>📊 Monitor DeFi Dashboard</h1>
 
-<h1>Morpho + Aave Dashboard (Arbitrum)</h1>
+  <div class="container">
+    <input id="ethAddress" placeholder="Introduce tu dirección Ethereum..." />
+    <button onclick="updateBalances()">Actualizar Ahora</button>
 
-<div class="form-container">
-  <input type="text" id="ethAddress" placeholder="Dirección ETH">
-  <input type="text" id="vaultAddress" placeholder="Vault Morpho" value="0x7e97fa6893871A2751B5fE961978DCCb2c201E65">
-  <button onclick="updateBalances()">Actualizar</button>
-</div>
+    <div class="stats">
+      <p><strong>Depósitos Morpho (USDC):</strong> <span id="deposits">0.000000</span></p>
+      <p><strong>Depósitos Aave USDC:</strong> <span id="aaveDeposits">0.000000</span></p>
+      <p><strong>Deuda Aave (USDC):</strong> <span id="debt">0.000000</span></p>
+      <p><strong>Posición Neta (USDC):</strong> <span id="net">0.000000</span></p>
+      <p><strong>APY Estimado:</strong> <span id="apy">0.00%</span></p>
+    </div>
 
-<div class="stats">
-  <p><strong>Depósitos Morpho (USDC):</strong> <span id="deposits">0.000000</span></p>
-  <p><strong>Depósitos Aave USDC:</strong> <span id="aaveDeposits">0.000000</span></p>
-  <p><strong>Deuda Aave (USDC):</strong> <span id="debt">0.000000</span></p>
-  <p><strong>Net Position (USDC):</strong> <span id="net">0.000000</span></p>
-</div>
+    <canvas id="chart" width="400" height="200"></canvas>
+  </div>
 
-<canvas id="chart" width="800" height="300"></canvas>
+  <script>
+    // ===== CONFIGURACIÓN =====
+    const provider = new ethers.JsonRpcProvider("https://public-arb-mainnet.fastnode.io");
 
-<script>
-// ===== CONFIG =====
-const ARBITRUM_RPC = "https://arb1.arbitrum.io/rpc";
-const AAVE_USDC_DEBT = "0xf611aeb5013fd2c0511c9cd55c7dc5c1140741a6";
-const AAVE_USDC_DEPOSITS = "0x724dc807b04555b71ed48a6896b6f41593b8c637";
+    const REFRESH_INTERVAL_MINUTES = 0.5; // cada 30 segundos
+    const PERIODS_PER_YEAR = 525600 / REFRESH_INTERVAL_MINUTES; // = 1,051,200 períodos/año
 
-// ===== ABIs =====
-const erc20Abi = [
-  {"constant":true,"inputs":[{"name":"account","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"}
-];
+    const MORPHO_DEFAULT = "0x7e97fa6893871A2751B5fE961978DCCb2c201E65";
+    const AAVE_DEBT = "0xf611aeb5013fd2c0511c9cd55c7dc5c1140741a6";
+    const AAVE_USDC_DEPOSITS = "0x724dc807b04555b71ed48a6896b6f41593b8c637";
 
-const morphoVaultAbi = [
-  {"constant":true,"inputs":[{"name":"account","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"},
-  {"constant":true,"inputs":[{"name":"shares","type":"uint256"}],"name":"convertToAssets","outputs":[{"name":"","type":"uint256"}],"type":"function"}
-];
+    const erc20Abi = [
+      "function balanceOf(address) view returns (uint256)",
+      "function convertToAssets(uint256 shares) view returns (uint256)"
+    ];
 
-// ===== PROVIDER =====
-const provider = new window.ethers.JsonRpcProvider(ARBITRUM_RPC);
+    let history = [];
 
-// ===== VARIABLES =====
-let history = [];
-let chart;
-
-// ===== FUNCIONES =====
-function initChart() {
-  const ctx = document.getElementById('chart').getContext('2d');
-  chart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: [],
-      datasets: [
-        { label: '% Cambio', data: [], borderColor: '#4caf50', backgroundColor: '#4caf5020', fill: true },
-        { label: 'APY anual %', data: [], borderColor: '#ff9800', backgroundColor: '#ff980020', fill: true }
-      ]
-    },
-    options: {
-      responsive: true,
-      plugins: {
-        legend: { labels: { color: '#fff' } },
-        tooltip: { mode: 'index', intersect: false }
+    // ===== GRÁFICO =====
+    const ctx = document.getElementById("chart");
+    const chart = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: [],
+        datasets: [{
+          label: "Posición Neta (USDC)",
+          data: [],
+          borderWidth: 2,
+          fill: false,
+          tension: 0.3
+        }]
       },
-      scales: {
-        x: { ticks: { color: '#fff' }, grid: { color: '#555' } },
-        y: { ticks: { color: '#fff' }, grid: { color: '#555' } }
+      options: {
+        scales: {
+          x: { ticks: { color: "#8b949e" } },
+          y: { ticks: { color: "#8b949e" } }
+        },
+        plugins: {
+          legend: { labels: { color: "#c9d1d9" } }
+        }
+      }
+    });
+
+    // ===== FUNCIONES =====
+    async function fetchBalances(ethAddress) {
+      try {
+        const morphoVault = MORPHO_DEFAULT;
+
+        // Morpho
+        const morphoContract = new ethers.Contract(morphoVault, erc20Abi, provider);
+        const morphoShares = await morphoContract.balanceOf(ethAddress);
+        const morphoAssets = await morphoContract.convertToAssets(morphoShares);
+        const deposited = parseFloat(ethers.formatUnits(morphoAssets, 6));
+
+        // Aave Deposits
+        const aaveDepositsContract = new ethers.Contract(AAVE_USDC_DEPOSITS, erc20Abi, provider);
+        const aaveDepositsRaw = await aaveDepositsContract.balanceOf(ethAddress);
+        const aaveDeposits = parseFloat(ethers.formatUnits(aaveDepositsRaw, 6));
+
+        // Aave Debt
+        const aaveDebtContract = new ethers.Contract(AAVE_DEBT, erc20Abi, provider);
+        const aaveDebtRaw = await aaveDebtContract.balanceOf(ethAddress);
+        const debt = parseFloat(ethers.formatUnits(aaveDebtRaw, 6));
+
+        // Net position
+        const net = deposited + aaveDeposits - debt;
+
+        // Calcular delta y APY
+        let delta = 0;
+        if (history.length > 0) {
+          delta = net - history[history.length - 1].net;
+        }
+
+        const apy = history.length > 0 && history[history.length - 1].net > 0
+          ? ((1 + delta / history[history.length - 1].net) ** PERIODS_PER_YEAR - 1) * 100
+          : 0;
+
+        // Actualizar UI
+        document.getElementById("deposits").innerText = deposited.toFixed(6);
+        document.getElementById("aaveDeposits").innerText = aaveDeposits.toFixed(6);
+        document.getElementById("debt").innerText = debt.toFixed(6);
+        document.getElementById("net").innerText = net.toFixed(6);
+        document.getElementById("apy").innerText = apy.toFixed(2) + "%";
+
+        // Actualizar gráfico
+        history.push({ time: new Date().toLocaleTimeString(), net });
+        if (history.length > 30) history.shift();
+
+        chart.data.labels = history.map(h => h.time);
+        chart.data.datasets[0].data = history.map(h => h.net);
+        chart.update();
+
+      } catch (err) {
+        console.error("Error leyendo balances:", err);
       }
     }
-  });
-}
 
-async function fetchBalances(ethAddress, vaultAddress) {
-  if (!window.ethers.isAddress(ethAddress)) return;
+    async function updateBalances() {
+      const ethAddress = document.getElementById("ethAddress").value.trim();
+      if (!ethers.isAddress(ethAddress)) {
+        alert("Por favor introduce una dirección Ethereum válida.");
+        return;
+      }
+      await fetchBalances(ethAddress);
+    }
 
-  try {
-    // ===== MORPHO =====
-    const morphoVault = new window.ethers.Contract(vaultAddress, morphoVaultAbi, provider);
-    const shares = await morphoVault.balanceOf(ethAddress);
-    const depositedRaw = await morphoVault.convertToAssets(shares);
-    const deposited = parseFloat(window.ethers.formatUnits(depositedRaw, 6));
+    // ===== AUTO-REFRESCO =====
+    setInterval(() => {
+      const ethAddress = document.getElementById("ethAddress").value.trim();
+      if (ethers.isAddress(ethAddress)) {
+        fetchBalances(ethAddress);
+      }
+    }, 30000); // cada 30 segundos
 
-    // ===== AAVE DEPOSITS =====
-    const aaveDepositsContract = new window.ethers.Contract(AAVE_USDC_DEPOSITS, erc20Abi, provider);
-    const aaveDepositsRaw = await aaveDepositsContract.balanceOf(ethAddress);
-    const aaveDeposits = parseFloat(window.ethers.formatUnits(aaveDepositsRaw, 6));
-
-    // ===== AAVE DEUDA =====
-    const aaveDebtContract = new window.ethers.Contract(AAVE_USDC_DEBT, erc20Abi, provider);
-    const debtRaw = await aaveDebtContract.balanceOf(ethAddress);
-    const debt = parseFloat(window.ethers.formatUnits(debtRaw, 6));
-
-    const net = deposited + aaveDeposits - debt;
-
-    // ===== % Cambio y APY =====
-    let delta = 0;
-    if (history.length > 0) delta = net - history[history.length - 1].net;
-    const porcentaje = history.length > 0 ? (delta / history[history.length - 1].net) * 100 : 0;
-    const apy = history.length > 0 ? ((1 + delta / history[history.length - 1].net) ** 525600 -1)*100 : 0;
-
-    history.push({ net, porcentaje, apy, time: new Date().toLocaleTimeString() });
-    if (history.length > 60) history.shift();
-
-    // ===== ACTUALIZAR UI =====
-    document.getElementById('deposits').innerText = deposited.toFixed(6);
-    document.getElementById('aaveDeposits').innerText = aaveDeposits.toFixed(6);
-    document.getElementById('debt').innerText = debt.toFixed(6);
-    document.getElementById('net').innerText = net.toFixed(6);
-
-    // ===== ACTUALIZAR GRÁFICO =====
-    chart.data.labels = history.map(h => h.time);
-    chart.data.datasets[0].data = history.map(h => h.porcentaje);
-    chart.data.datasets[1].data = history.map(h => h.apy);
-    chart.update();
-
-  } catch(e) {
-    console.error("Error fetching balances:", e);
-  }
-}
-
-function updateBalances() {
-  const ethAddress = document.getElementById('ethAddress').value.trim();
-  const vaultAddress = document.getElementById('vaultAddress').value.trim();
-  fetchBalances(ethAddress, vaultAddress);
-}
-
-// ===== INICIALIZAR =====
-initChart();
-setInterval(() => {
-  const ethAddress = document.getElementById('ethAddress').value.trim();
-  const vaultAddress = document.getElementById('vaultAddress').value.trim();
-  fetchBalances(ethAddress, vaultAddress);
-}, 60000);
-
-</script>
+  </script>
 </body>
 </html>
