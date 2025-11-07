@@ -5,8 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Morpho + Aave Dashboard (Arbitrum)</title>
 <link rel="stylesheet" href="style.css">
-<!-- Ethers.js local -->
-<script src="libs/ethers.umd.min.js"></script>
+
+<!-- Ethers.js desde tu GitHub Pages -->
+<script src="https://plethorix.github.io/balances/libs/ethers.umd.min.js"></script>
+
 <!-- Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -33,7 +35,7 @@
 const ARBITRUM_RPC = "https://arb1.arbitrum.io/rpc";
 const AAVE_USDC = "0xf611aeb5013fd2c0511c9cd55c7dc5c1140741a6";
 
-// ===== ABIs =====
+// ===== ABIs EMBEBIDOS =====
 const erc20Abi = [
   {"constant":true,"inputs":[{"name":"account","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"}
 ];
@@ -129,6 +131,7 @@ setInterval(() => {
   const vaultAddress = document.getElementById('vaultAddress').value.trim();
   fetchBalances(ethAddress, vaultAddress);
 }, 60000);
+
 </script>
 </body>
 </html>
