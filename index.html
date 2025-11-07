@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DeFi Monitor – Morpho & Aave</title>
 
-  <!-- Librerías locales -->
+  <!-- Librerías -->
   <script src="libs/ethers.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
@@ -81,13 +81,14 @@
   </div>
 
   <script>
+    // ✅ Conexión WebSocket (RPC Arbitrum)
     const provider = new ethers.WebSocketProvider("wss://arbitrum-one-rpc.publicnode.com");
 
-    const MORPHO_DEFAULT = "0x7e97fa6893871A2751B5fE961978DCCb2c201E65"; // Vault Morpho
-    const AAVE_USDC = "0x724dc807b04555b71ed48a6896b6f41593b8c637"; // aUSDC Aave
-    const AAVE_DEBT = "0xf611aeb5013fd2c0511c9cd55c7dc5c1140741a6"; // deuda Aave
+    const MORPHO_DEFAULT = "0x7e97fa6893871A2751B5fE961978DCCb2c201E65";
+    const AAVE_USDC = "0x724dc807b04555b71ed48a6896b6f41593b8c637";
+    const AAVE_DEBT = "0xf611aeb5013fd2c0511c9cd55c7dc5c1140741a6";
 
-    const REFRESH_INTERVAL_MINUTES = 0.5; // cada 30s
+    const REFRESH_INTERVAL_MINUTES = 0.5; // 30 segundos
     const PERIODS_PER_YEAR = 525600 / REFRESH_INTERVAL_MINUTES;
 
     const erc20Abi = [
@@ -97,57 +98,25 @@
 
     let history = [];
 
-    // Configuración del gráfico
+    // 🎨 Configuración del gráfico
     const ctx = document.getElementById("apyChart").getContext("2d");
     const apyChart = new Chart(ctx, {
       type: "line",
       data: {
         labels: [],
         datasets: [
-          {
-            label: "APY Morpho",
-            borderColor: "#22c55e",
-            data: [],
-            tension: 0.25,
-            borderWidth: 2,
-            fill: false
-          },
-          {
-            label: "APY Aave",
-            borderColor: "#3b82f6",
-            data: [],
-            tension: 0.25,
-            borderWidth: 2,
-            fill: false
-          },
-          {
-            label: "APY Total",
-            borderColor: "#e5e7eb",
-            data: [],
-            tension: 0.25,
-            borderWidth: 2,
-            fill: false
-          }
+          { label: "APY Morpho", borderColor: "#22c55e", data: [], tension: 0.25, borderWidth: 2, fill: false },
+          { label: "APY Aave", borderColor: "#3b82f6", data: [], tension: 0.25, borderWidth: 2, fill: false },
+          { label: "APY Total", borderColor: "#e5e7eb", data: [], tension: 0.25, borderWidth: 2, fill: false }
         ]
       },
       options: {
         responsive: true,
         scales: {
-          y: {
-            beginAtZero: true,
-            title: { display: true, text: "APY (%)", color: "#f1f5f9" },
-            ticks: { color: "#f1f5f9" },
-            grid: { color: "#334155" }
-          },
-          x: {
-            title: { display: true, text: "Tiempo (intervalos de 30s)", color: "#f1f5f9" },
-            ticks: { color: "#f1f5f9" },
-            grid: { color: "#334155" }
-          }
+          y: { beginAtZero: true, title: { display: true, text: "APY (%)", color: "#f1f5f9" }, ticks: { color: "#f1f5f9" }, grid: { color: "#334155" } },
+          x: { title: { display: true, text: "Tiempo (intervalos de 30s)", color: "#f1f5f9" }, ticks: { color: "#f1f5f9" }, grid: { color: "#334155" } }
         },
-        plugins: {
-          legend: { labels: { color: "#f1f5f9" } }
-        }
+        plugins: { legend: { labels: { color: "#f1f5f9" } } }
       }
     });
 
@@ -160,22 +129,20 @@
         const aave = new ethers.Contract(AAVE_USDC, erc20Abi, provider);
         const debt = new ethers.Contract(AAVE_DEBT, erc20Abi, provider);
 
-        // 🔹 Morpho
+        // 🔹 Lectura de balances
         const morphoShares = await morpho.balanceOf(userAddress);
         const morphoAssets = await morpho.convertToAssets(morphoShares);
         const morphoUSDC = Number(ethers.formatUnits(morphoAssets, 6));
 
-        // 🔹 Aave deposits
         const aaveBal = await aave.balanceOf(userAddress);
         const aaveUSDC = Number(ethers.formatUnits(aaveBal, 6));
 
-        // 🔹 Deuda
         const debtBal = await debt.balanceOf(userAddress);
         const debtUSDC = Number(ethers.formatUnits(debtBal, 6));
 
         const net = morphoUSDC + aaveUSDC - debtUSDC;
 
-        // Cálculos de deltas y APY
+        // 🔹 Deltas y APYs
         let morphoDelta = 0, aaveDelta = 0, netDelta = 0;
         if (history.length > 0) {
           morphoDelta = morphoUSDC - history[history.length - 1].morpho;
@@ -183,27 +150,29 @@
           netDelta    = net        - history[history.length - 1].net;
         }
 
-        const morphoApy = history.length > 0
-          ? ((1 + morphoDelta / history[history.length - 1].morpho) ** PERIODS_PER_YEAR - 1) * 100
-          : 0;
-        const aaveApy = history.length > 0
-          ? ((1 + aaveDelta / history[history.length - 1].aave) ** PERIODS_PER_YEAR - 1) * 100
-          : 0;
-        const totalApy = history.length > 0
-          ? ((1 + netDelta / history[history.length - 1].net) ** PERIODS_PER_YEAR - 1) * 100
-          : 0;
+        const morphoApy = history.length > 0 ? ((1 + morphoDelta / history[history.length - 1].morpho) ** PERIODS_PER_YEAR - 1) * 100 : 0;
+        const aaveApy   = history.length > 0 ? ((1 + aaveDelta / history[history.length - 1].aave) ** PERIODS_PER_YEAR - 1) * 100 : 0;
+        const totalApy  = history.length > 0 ? ((1 + netDelta / history[history.length - 1].net) ** PERIODS_PER_YEAR - 1) * 100 : 0;
 
+        // 🔹 Guardar y limitar historial
         history.push({ morpho: morphoUSDC, aave: aaveUSDC, debt: debtUSDC, net, morphoApy, aaveApy, totalApy });
+        if (history.length > 50) history.shift(); // mantener últimos 50
 
-        // Mostrar valores
+        // 🔹 Limitar también el gráfico
+        if (apyChart.data.labels.length > 50) {
+          apyChart.data.labels.shift();
+          apyChart.data.datasets.forEach(ds => ds.data.shift());
+        }
+
+        // 🔹 Mostrar datos
         document.getElementById("morphoBalance").innerText = morphoUSDC.toFixed(6);
-        document.getElementById("aaveBalance").innerText = aaveUSDC.toFixed(6);
-        document.getElementById("debtBalance").innerText = debtUSDC.toFixed(6);
-        document.getElementById("netBalance").innerText = net.toFixed(6);
+        document.getElementById("aaveBalance").innerText   = aaveUSDC.toFixed(6);
+        document.getElementById("debtBalance").innerText   = debtUSDC.toFixed(6);
+        document.getElementById("netBalance").innerText    = net.toFixed(6);
 
         document.getElementById("morphoApy").innerText = morphoApy.toFixed(2) + "%";
-        document.getElementById("aaveApy").innerText = aaveApy.toFixed(2) + "%";
-        document.getElementById("totalApy").innerText = totalApy.toFixed(2) + "%";
+        document.getElementById("aaveApy").innerText   = aaveApy.toFixed(2) + "%";
+        document.getElementById("totalApy").innerText  = totalApy.toFixed(2) + "%";
 
         // 🔹 Actualizar gráfico
         apyChart.data.labels.push(history.length.toString());
