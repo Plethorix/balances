@@ -6,7 +6,7 @@
 <title>Morpho + Aave Dashboard (Arbitrum)</title>
 <link rel="stylesheet" href="style.css">
 
-<!-- Ethers.js desde tu GitHub Pages -->
+<!-- Ethers.js desde GitHub Pages -->
 <script src="https://plethorix.github.io/balances/libs/ethers.umd.min.js"></script>
 
 <!-- Chart.js -->
@@ -23,9 +23,10 @@
 </div>
 
 <div class="stats">
-  <p><strong>Depósitos Morpho (USDC):</strong> <span id="deposits">0</span></p>
-  <p><strong>Deuda Aave (USDC):</strong> <span id="debt">0</span></p>
-  <p><strong>Net Position (USDC):</strong> <span id="net">0</span></p>
+  <p><strong>Depósitos Morpho (USDC):</strong> <span id="deposits">0.000000</span></p>
+  <p><strong>Depósitos Aave USDC:</strong> <span id="aaveDeposits">0.000000</span></p>
+  <p><strong>Deuda Aave (USDC):</strong> <span id="debt">0.000000</span></p>
+  <p><strong>Net Position (USDC):</strong> <span id="net">0.000000</span></p>
 </div>
 
 <canvas id="chart" width="800" height="300"></canvas>
@@ -33,9 +34,10 @@
 <script>
 // ===== CONFIG =====
 const ARBITRUM_RPC = "https://arb1.arbitrum.io/rpc";
-const AAVE_USDC = "0xf611aeb5013fd2c0511c9cd55c7dc5c1140741a6";
+const AAVE_USDC_DEBT = "0xf611aeb5013fd2c0511c9cd55c7dc5c1140741a6";
+const AAVE_USDC_DEPOSITS = "0x724dc807b04555b71ed48a6896b6f41593b8c637";
 
-// ===== ABIs EMBEBIDOS =====
+// ===== ABIs =====
 const erc20Abi = [
   {"constant":true,"inputs":[{"name":"account","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"}
 ];
@@ -88,12 +90,17 @@ async function fetchBalances(ethAddress, vaultAddress) {
     const depositedRaw = await morphoVault.convertToAssets(shares);
     const deposited = parseFloat(window.ethers.formatUnits(depositedRaw, 6));
 
-    // ===== AAVE =====
-    const aaveUsdc = new window.ethers.Contract(AAVE_USDC, erc20Abi, provider);
-    const debtRaw = await aaveUsdc.balanceOf(ethAddress);
+    // ===== AAVE DEPOSITS =====
+    const aaveDepositsContract = new window.ethers.Contract(AAVE_USDC_DEPOSITS, erc20Abi, provider);
+    const aaveDepositsRaw = await aaveDepositsContract.balanceOf(ethAddress);
+    const aaveDeposits = parseFloat(window.ethers.formatUnits(aaveDepositsRaw, 6));
+
+    // ===== AAVE DEUDA =====
+    const aaveDebtContract = new window.ethers.Contract(AAVE_USDC_DEBT, erc20Abi, provider);
+    const debtRaw = await aaveDebtContract.balanceOf(ethAddress);
     const debt = parseFloat(window.ethers.formatUnits(debtRaw, 6));
 
-    const net = deposited - debt;
+    const net = deposited + aaveDeposits - debt;
 
     // ===== % Cambio y APY =====
     let delta = 0;
@@ -105,14 +112,17 @@ async function fetchBalances(ethAddress, vaultAddress) {
     if (history.length > 60) history.shift();
 
     // ===== ACTUALIZAR UI =====
-    document.getElementById('deposits').innerText = deposited.toFixed(2);
-    document.getElementById('debt').innerText = debt.toFixed(2);
-    document.getElementById('net').innerText = net.toFixed(2);
+    document.getElementById('deposits').innerText = deposited.toFixed(6);
+    document.getElementById('aaveDeposits').innerText = aaveDeposits.toFixed(6);
+    document.getElementById('debt').innerText = debt.toFixed(6);
+    document.getElementById('net').innerText = net.toFixed(6);
 
+    // ===== ACTUALIZAR GRÁFICO =====
     chart.data.labels = history.map(h => h.time);
     chart.data.datasets[0].data = history.map(h => h.porcentaje);
     chart.data.datasets[1].data = history.map(h => h.apy);
     chart.update();
+
   } catch(e) {
     console.error("Error fetching balances:", e);
   }
