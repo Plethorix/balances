@@ -4,25 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Morpho + Aave Dashboard (Arbitrum)</title>
+<link rel="stylesheet" href="style.css">
 <!-- Ethers.js -->
 <script src="https://cdn.ethers.io/lib/ethers-6.9.0.min.js" type="text/javascript"></script>
 <!-- Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<style>
-  body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
-  h1 { text-align: center; }
-  input { padding: 5px; margin: 5px; width: 300px; }
-  button { padding: 6px 12px; margin: 5px; }
-  .stats { margin-top: 20px; }
-  .stats p { font-size: 1.1em; margin: 5px 0; }
-  canvas { background: #fff; margin-top: 30px; }
-</style>
 </head>
 <body>
 
 <h1>Morpho + Aave Dashboard (Arbitrum)</h1>
 
-<div>
+<div class="form-container">
   <input type="text" id="ethAddress" placeholder="Dirección ETH">
   <input type="text" id="vaultAddress" placeholder="Vault Morpho" value="0x7e97fa6893871A2751B5fE961978DCCb2c201E65">
   <button onclick="updateBalances()">Actualizar</button>
@@ -36,11 +28,13 @@
 
 <canvas id="chart" width="800" height="300"></canvas>
 
+<script src="abi/erc20.json"></script>
+<script src="abi/morphoVault.json"></script>
 <script>
+// Configuración
 const ARBITRUM_RPC = "https://arb1.arbitrum.io/rpc";
 const AAVE_USDC = "0xf611aeb5013fd2c0511c9cd55c7dc5c1140741a6";
 
-// ABIs mínimos
 const erc20Abi = [
   {"constant":true,"inputs":[{"name":"account","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"}
 ];
@@ -62,24 +56,11 @@ function initChart() {
     data: {
       labels: [],
       datasets: [
-        {
-          label: '% Cambio',
-          data: [],
-          borderColor: '#8884d8',
-          fill: false
-        },
-        {
-          label: 'APY anual %',
-          data: [],
-          borderColor: '#82ca9d',
-          fill: false
-        }
+        { label: '% Cambio', data: [], borderColor: '#8884d8', fill: false },
+        { label: 'APY anual %', data: [], borderColor: '#82ca9d', fill: false }
       ]
     },
-    options: {
-      responsive: true,
-      scales: { y: { beginAtZero: false } }
-    }
+    options: { responsive: true, scales: { y: { beginAtZero: false } } }
   });
 }
 
@@ -97,25 +78,20 @@ async function fetchBalances(ethAddress, vaultAddress) {
   const debtRaw = await aaveUsdc.balanceOf(ethAddress);
   const debt = parseFloat(ethers.formatUnits(debtRaw, 6));
 
-  // Net position
   const net = deposited - debt;
 
-  // Calcular % cambio y APY
   let delta = 0;
   if (history.length > 0) delta = net - history[history.length - 1].net;
   const porcentaje = history.length > 0 ? (delta / history[history.length - 1].net) * 100 : 0;
   const apy = history.length > 0 ? ((1 + delta / history[history.length - 1].net) ** 525600 -1)*100 : 0;
 
-  // Guardar snapshot
   history.push({ net, porcentaje, apy, time: new Date().toLocaleTimeString() });
-  if (history.length > 60) history.shift(); // últimos 60 minutos
+  if (history.length > 60) history.shift();
 
-  // Actualizar UI
   document.getElementById('deposits').innerText = deposited.toFixed(2);
   document.getElementById('debt').innerText = debt.toFixed(2);
   document.getElementById('net').innerText = net.toFixed(2);
 
-  // Actualizar gráfico
   chart.data.labels = history.map(h => h.time);
   chart.data.datasets[0].data = history.map(h => h.porcentaje);
   chart.data.datasets[1].data = history.map(h => h.apy);
@@ -128,16 +104,12 @@ function updateBalances() {
   fetchBalances(ethAddress, vaultAddress);
 }
 
-// Inicializar chart
 initChart();
-
-// Polling cada minuto
 setInterval(() => {
   const ethAddress = document.getElementById('ethAddress').value.trim();
   const vaultAddress = document.getElementById('vaultAddress').value.trim();
   fetchBalances(ethAddress, vaultAddress);
 }, 60000);
 </script>
-
 </body>
 </html>
