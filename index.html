@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DeFi Monitor – Morpho & Aave</title>
+  <title>DeFi Monitor – Morpho, Aave & Euler</title>
 
   <!-- Librerías -->
   <script src="libs/ethers.umd.min.js"></script>
@@ -54,7 +54,7 @@
   </style>
 </head>
 <body>
-  <h1>DeFi Dashboard – Morpho & Aave (Arbitrum)</h1>
+  <h1>DeFi Dashboard – Morpho, Aave & Euler (Arbitrum)</h1>
 
   <div class="card">
     <p><strong>Dirección del usuario:</strong></p>
@@ -65,6 +65,7 @@
   <div class="card">
     <p><strong>Depósitos Morpho:</strong> <span id="morphoBalance">0.000000</span> USDC</p>
     <p><strong>Depósitos Aave:</strong> <span id="aaveBalance">0.000000</span> USDC</p>
+    <p><strong>Depósitos Euler:</strong> <span id="eulerBalance">0.000000</span> USDC</p>
     <p><strong>Deuda Aave:</strong> <span id="debtBalance">0.000000</span> USDC</p>
     <hr>
     <p><strong>Posición neta:</strong> <span id="netBalance">0.000000</span> USDC</p>
@@ -72,7 +73,9 @@
 
   <div class="card">
     <p><strong>APY Morpho:</strong> <span id="morphoApy">0.00%</span></p>
-    <p><strong>APY Aave Depósitos:</strong> <span id="aaveApy">0.00%</span></p>
+    <p><strong>APY Aave:</strong> <span id="aaveApy">0.00%</span></p>
+    <p><strong>APY Euler:</strong> <span id="eulerApy">0.00%</span></p>
+    <hr>
     <p><strong>APY Total:</strong> <span id="totalApy">0.00%</span></p>
   </div>
 
@@ -81,14 +84,16 @@
   </div>
 
   <script>
-    // ✅ Conexión WebSocket (RPC Arbitrum)
+    // ✅ Conexión RPC (Arbitrum)
     const provider = new ethers.WebSocketProvider("wss://arbitrum-one-rpc.publicnode.com");
 
+    // Direcciones
     const MORPHO_DEFAULT = "0x7e97fa6893871A2751B5fE961978DCCb2c201E65";
     const AAVE_USDC = "0x724dc807b04555b71ed48a6896b6f41593b8c637";
     const AAVE_DEBT = "0xf611aeb5013fd2c0511c9cd55c7dc5c1140741a6";
+    const EULER_USDC_EARN = "0xe4783824593a50Bfe9dc873204CEc171ebC62dE0";
 
-    const REFRESH_INTERVAL_MINUTES = 0.5; // 30 segundos
+    const REFRESH_INTERVAL_MINUTES = 0.5;
     const PERIODS_PER_YEAR = 525600 / REFRESH_INTERVAL_MINUTES;
 
     const erc20Abi = [
@@ -107,6 +112,7 @@
         datasets: [
           { label: "APY Morpho", borderColor: "#22c55e", data: [], tension: 0.25, borderWidth: 2, fill: false },
           { label: "APY Aave", borderColor: "#3b82f6", data: [], tension: 0.25, borderWidth: 2, fill: false },
+          { label: "APY Euler", borderColor: "#facc15", data: [], tension: 0.25, borderWidth: 2, fill: false },
           { label: "APY Total", borderColor: "#e5e7eb", data: [], tension: 0.25, borderWidth: 2, fill: false }
         ]
       },
@@ -128,57 +134,70 @@
         const morpho = new ethers.Contract(MORPHO_DEFAULT, erc20Abi, provider);
         const aave = new ethers.Contract(AAVE_USDC, erc20Abi, provider);
         const debt = new ethers.Contract(AAVE_DEBT, erc20Abi, provider);
+        const euler = new ethers.Contract(EULER_USDC_EARN, erc20Abi, provider);
 
         // 🔹 Lectura de balances
-        const morphoShares = await morpho.balanceOf(userAddress);
-        const morphoAssets = await morpho.convertToAssets(morphoShares);
+        const [morphoShares, aaveBal, debtBal, eulerShares] = await Promise.all([
+          morpho.balanceOf(userAddress),
+          aave.balanceOf(userAddress),
+          debt.balanceOf(userAddress),
+          euler.balanceOf(userAddress)
+        ]);
+
+        const [morphoAssets, eulerAssets] = await Promise.all([
+          morpho.convertToAssets(morphoShares),
+          euler.convertToAssets(eulerShares)
+        ]);
+
         const morphoUSDC = Number(ethers.formatUnits(morphoAssets, 6));
-
-        const aaveBal = await aave.balanceOf(userAddress);
         const aaveUSDC = Number(ethers.formatUnits(aaveBal, 6));
-
-        const debtBal = await debt.balanceOf(userAddress);
         const debtUSDC = Number(ethers.formatUnits(debtBal, 6));
+        const eulerUSDC = Number(ethers.formatUnits(eulerAssets, 6));
 
-        const net = morphoUSDC + aaveUSDC - debtUSDC;
+        const net = morphoUSDC + aaveUSDC + eulerUSDC - debtUSDC;
 
         // 🔹 Deltas y APYs
-        let morphoDelta = 0, aaveDelta = 0, netDelta = 0;
+        let morphoDelta = 0, aaveDelta = 0, eulerDelta = 0, netDelta = 0;
         if (history.length > 0) {
           morphoDelta = morphoUSDC - history[history.length - 1].morpho;
           aaveDelta   = aaveUSDC   - history[history.length - 1].aave;
+          eulerDelta  = eulerUSDC  - history[history.length - 1].euler;
           netDelta    = net        - history[history.length - 1].net;
         }
 
-        const morphoApy = history.length > 0 ? ((1 + morphoDelta / history[history.length - 1].morpho) ** PERIODS_PER_YEAR - 1) * 100 : 0;
-        const aaveApy   = history.length > 0 ? ((1 + aaveDelta / history[history.length - 1].aave) ** PERIODS_PER_YEAR - 1) * 100 : 0;
-        const totalApy  = history.length > 0 ? ((1 + netDelta / history[history.length - 1].net) ** PERIODS_PER_YEAR - 1) * 100 : 0;
+        const morphoApy = history.length > 0 && history[history.length - 1].morpho > 0 ? ((1 + morphoDelta / history[history.length - 1].morpho) ** PERIODS_PER_YEAR - 1) * 100 : 0;
+        const aaveApy   = history.length > 0 && history[history.length - 1].aave > 0   ? ((1 + aaveDelta / history[history.length - 1].aave) ** PERIODS_PER_YEAR - 1) * 100 : 0;
+        const eulerApy  = history.length > 0 && history[history.length - 1].euler > 0  ? ((1 + eulerDelta / history[history.length - 1].euler) ** PERIODS_PER_YEAR - 1) * 100 : 0;
+        const totalApy  = history.length > 0 && history[history.length - 1].net > 0    ? ((1 + netDelta / history[history.length - 1].net) ** PERIODS_PER_YEAR - 1) * 100 : 0;
 
         // 🔹 Guardar y limitar historial
-        history.push({ morpho: morphoUSDC, aave: aaveUSDC, debt: debtUSDC, net, morphoApy, aaveApy, totalApy });
-        if (history.length > 50) history.shift(); // mantener últimos 50
-
-        // 🔹 Limitar también el gráfico
-        if (apyChart.data.labels.length > 50) {
-          apyChart.data.labels.shift();
-          apyChart.data.datasets.forEach(ds => ds.data.shift());
-        }
+        history.push({ morpho: morphoUSDC, aave: aaveUSDC, euler: eulerUSDC, debt: debtUSDC, net, morphoApy, aaveApy, eulerApy, totalApy });
+        if (history.length > 50) history.shift();
 
         // 🔹 Mostrar datos
         document.getElementById("morphoBalance").innerText = morphoUSDC.toFixed(6);
         document.getElementById("aaveBalance").innerText   = aaveUSDC.toFixed(6);
+        document.getElementById("eulerBalance").innerText  = eulerUSDC.toFixed(6);
         document.getElementById("debtBalance").innerText   = debtUSDC.toFixed(6);
         document.getElementById("netBalance").innerText    = net.toFixed(6);
 
         document.getElementById("morphoApy").innerText = morphoApy.toFixed(2) + "%";
         document.getElementById("aaveApy").innerText   = aaveApy.toFixed(2) + "%";
+        document.getElementById("eulerApy").innerText  = eulerApy.toFixed(2) + "%";
         document.getElementById("totalApy").innerText  = totalApy.toFixed(2) + "%";
 
         // 🔹 Actualizar gráfico
         apyChart.data.labels.push(history.length.toString());
         apyChart.data.datasets[0].data.push(morphoApy);
         apyChart.data.datasets[1].data.push(aaveApy);
-        apyChart.data.datasets[2].data.push(totalApy);
+        apyChart.data.datasets[2].data.push(eulerApy);
+        apyChart.data.datasets[3].data.push(totalApy);
+
+        if (apyChart.data.labels.length > 50) {
+          apyChart.data.labels.shift();
+          apyChart.data.datasets.forEach(ds => ds.data.shift());
+        }
+
         apyChart.update();
 
       } catch (err) {
@@ -188,7 +207,7 @@
 
     function updateBalances() {
       fetchBalances();
-      setInterval(fetchBalances, 30000); // cada 30s
+      setInterval(fetchBalances, 30000);
     }
   </script>
 </body>
